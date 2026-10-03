@@ -36,6 +36,8 @@ jobs:
           cache: pip
       - name: Install
         run: pip install -e ".[dev,ioc]"
+      - name: Pylint
+        run: PYTHONPATH=src pylint src/kiwi_scan
       - name: Ruff
         run: ruff check src/kiwi_scan tests/
       - name: Pyright
