@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev,ioc]"
+      - name: Test
+        run: |
+          mkdir -p scandata
+          PYTHONPATH=src EPICS_WRITETEST=1 python -m pytest --cov=src/kiwi_scan --cov-report=term
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev,ioc]"
+      - name: Pylint
+        run: PYTHONPATH=src pylint src/kiwi_scan
+      - name: Ruff
+        run: ruff check src/kiwi_scan tests/
+      - name: Pyright
+        run: pyright src/kiwi_scan
