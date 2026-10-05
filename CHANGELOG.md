@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - Scan point data writer now runs through a background writer task.
+  Buffered rows are flushed to the data file at most once per second, including when the scan is idle.
 - Plugin columns no longer add one scan-file timestamp column per value.
   Detector and plugin timestamps are available as raw POSIX values in the runtime point caches.
 - Plugin constructors now receive `ScanPluginContext`, a subset of the  `BaseScan` API.

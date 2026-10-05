@@ -30,6 +30,11 @@ class _ParallelPointWriter:
     Raw POSIX timestamps cross the scan/writer boundary. Timestamp rendering is
     deliberately performed only here so ISO-8601 conversion cannot consume scan
     loop CPU time.
+
+    Rows from ``submit()`` are buffered and flushed at most once per
+    ``flush_interval`` seconds, including when the scan goes idle. This keeps
+    the file close to the scan without one flush per point on slow (e.g. NFS)
+    storage. ``submit_and_wait()`` always flushes its own row.
     """
 
     _SENTINEL = object()
@@ -43,9 +48,12 @@ class _ParallelPointWriter:
         *,
         timestamp_output_format: str = "iso8601",
         queue_size: int = 1024,
+        flush_interval: float = 1.0,
     ) -> None:
         if queue_size <= 0:
             raise ValueError("queue_size must be greater than zero")
+        if flush_interval < 0:
+            raise ValueError("flush_interval must not be negative")
 
         timestamp_output_format = str(timestamp_output_format).strip().lower()
         if timestamp_output_format not in self._TIMESTAMP_FORMATS:
@@ -56,6 +64,7 @@ class _ParallelPointWriter:
 
         self._format_value = format_value
         self._timestamp_output_format = timestamp_output_format
+        self._flush_interval = float(flush_interval)
         self._queue = queue.Queue(maxsize=queue_size)
         self._lifecycle_lock = threading.RLock()
         self._error_lock = threading.Lock()
@@ -202,32 +211,39 @@ class _ParallelPointWriter:
                 except BaseException as exc:  # noqa: BLE001
                     self._record_error(exc)
 
+                unflushed = False
+                last_flush = time.monotonic()
                 while True:
-                    item = self._queue.get()
+                    timeout = None
+                    if unflushed:
+                        timeout = max(
+                            0.0,
+                            last_flush + self._flush_interval - time.monotonic(),
+                        )
+                    try:
+                        item = self._queue.get(timeout=timeout)
+                    except queue.Empty:
+                        # Scan went idle with rows still buffered.
+                        self._flush(output)
+                        unflushed = False
+                        last_flush = time.monotonic()
+                        continue
+
                     try:
                         if item is self._SENTINEL:
                             break
 
                         request = item
                         self._record_queue_delay(request.enqueued_at)
-
-                        error = self._get_error()
-                        if error is not None:
-                            request.error = error
-                        else:
-                            try:
-                                assert output is not None
-                                line = self.format_point_line(
-                                    request.point,
-                                    self._format_value,
-                                    timestamp_output_format=self._timestamp_output_format,
-                                )
-                                output.write(line + "\n")
-
-                                if request.completed is not None:
-                                    output.flush()
-                            except BaseException as exc:  # noqa: BLE001
-                                request.error = self._record_error(exc)
+                        if self._write_request(output, request):
+                            unflushed = True
+                        if unflushed and (
+                            request.completed is not None
+                            or time.monotonic() - last_flush >= self._flush_interval
+                        ):
+                            self._flush(output, request)
+                            unflushed = False
+                            last_flush = time.monotonic()
 
                         if request.completed is not None:
                             request.completed.set()
@@ -235,6 +251,39 @@ class _ParallelPointWriter:
                         self._queue.task_done()
         except BaseException as exc:  # noqa: BLE001
             self._record_error(exc)
+
+    def _write_request(self, output: Any, request: _WriteRequest) -> bool:
+        """Write one row; return whether it was written to the buffer."""
+        error = self._get_error()
+        if error is not None:
+            request.error = error
+            return False
+        try:
+            assert output is not None
+            line = self.format_point_line(
+                request.point,
+                self._format_value,
+                timestamp_output_format=self._timestamp_output_format,
+            )
+            output.write(line + "\n")
+        except BaseException as exc:  # noqa: BLE001
+            request.error = self._record_error(exc)
+            return False
+        return True
+
+    def _flush(
+        self,
+        output: Any,
+        request: Optional[_WriteRequest] = None,
+    ) -> None:
+        if output is None or self._get_error() is not None:
+            return
+        try:
+            output.flush()
+        except BaseException as exc:  # noqa: BLE001
+            error = self._record_error(exc)
+            if request is not None:
+                request.error = error
 
     def _record_queue_delay(self, enqueued_at: float) -> None:
         delay = max(0.0, time.perf_counter() - enqueued_at)
