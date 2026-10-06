@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Added reusable actuator helpers: `create_actuators()`, `load_actuators()`, `run_monitors()`, and `MonitorSpec`.
 - Added the `kiwi-pva-server` cli and PVA `NTTable` (scan data) service.
 - Added --last-scan option to manifestfiles cli
+- Added the `kiwi-config-defaults` cli to print the full ScanConfig YAML structure with default values.
 
 ### Changed
 
