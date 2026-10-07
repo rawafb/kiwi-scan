@@ -77,6 +77,9 @@ def load_scan_configs(config_dir, replacements):
         dict: A dictionary where keys are configuration names and values are ScanConfig objects.
     Raises:
         FileNotFoundError: If the configuration directory does not exist.
+
+    Files that cannot be read or parsed into a ScanConfig are skipped with a
+    warning, so one broken file does not hide the other presets.
     """
     scan_configs = {}
     if not os.path.exists(config_dir):
@@ -84,9 +87,16 @@ def load_scan_configs(config_dir, replacements):
 
     for file_name in os.listdir(config_dir):
         if file_name.endswith(".yaml"):
-            config_data = load_scan_config_from_file(config_dir, file_name, replacements)
+            try:
+                config_data = load_scan_config_from_file(config_dir, file_name, replacements)
+                if not isinstance(config_data, dict):
+                    raise TypeError("top level is not a mapping")
+                scan_config = ScanConfig.from_dict(config_data)
+            except Exception as exc: # noqa: BLE001
+                logger.warning("Skipping scan config %s: %s", os.path.join(config_dir, file_name), exc)
+                continue
             config_name = os.path.splitext(file_name)[0]
-            scan_configs[config_name] = ScanConfig.from_dict(config_data)
+            scan_configs[config_name] = scan_config
     return scan_configs
 
 def create_scan_with_config(
