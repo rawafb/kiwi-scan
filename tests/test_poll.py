@@ -237,6 +237,7 @@ class TestPollScanLoop(PollScanTestCase):
         )
         base_stop.assert_called_once_with()
         self.assertFalse(scan.busyflag)
+        scan._point_pipeline.report_data_column_failures.assert_called_once_with()
 
     @patch.object(BaseScan, "stop")
     def test_scan_prefers_synchronized_position(self, base_stop):

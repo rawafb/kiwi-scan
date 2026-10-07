@@ -460,6 +460,7 @@ class TestParaScanLoop(ParaScanTestCase):
         scan._stop_subscriptions.assert_called_once_with()
         monitor.close.assert_called_once_with()
         self.assertFalse(scan.busyflag)
+        scan._point_pipeline.report_data_column_failures.assert_called_once_with()
         scan.performance.report.assert_called_once_with()
 
     def test_scan_waits_for_range_ready_and_changed_position(self):

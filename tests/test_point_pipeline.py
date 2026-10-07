@@ -6,7 +6,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
 from kiwi_scan.scan._point_frame import _DetectorLayout
@@ -35,6 +35,19 @@ class _ProviderState:
 
     def reset_window(self) -> None:
         self.reset_count += 1
+
+
+class _FlakyProvider(_ProviderState):
+    """Provider whose ``get_values()`` can start failing mid-scan."""
+
+    def __init__(self, headers=None, values=None) -> None:
+        super().__init__(headers, values)
+        self.error: Optional[Exception] = None
+
+    def get_values(self) -> List[Any]:
+        if self.error is not None:
+            raise self.error
+        return super().get_values()
 
 
 class _Plugin:
@@ -177,6 +190,98 @@ class TestPointPipelineColumns(unittest.TestCase):
         )
 
         self.assertEqual(row, [10.0, 456.0, 1.5, 2.5])
+
+
+class TestPointPipelineProviderFailures(unittest.TestCase):
+    def test_failing_provider_keeps_row_aligned_with_header(self) -> None:
+        pipeline = _make_pipeline(include_timestamps=False)
+        stats = _FlakyProvider(["aMean", "aStd"], [1.0, 2.0])
+        pipeline.add_column_provider(stats)
+        pipeline.add_column_provider(_ProviderState(["bMean"], [9.0]))
+        headers = pipeline.build_output_headers()
+        self.assertEqual(
+            headers,
+            ["Position", "aMean", "aStd", "bMean", "TS-ISO8601", "DET"],
+        )
+
+        stats.error = RuntimeError("broken values")
+        with patch("kiwi_scan.scan.point_pipeline.logger") as log:
+            frame = pipeline.begin_point_frame(idx=0, pos=5.0, values=[10.0])
+            self.assertIsNone(pipeline.get_current_row_value("aMean", "missing"))
+            self.assertIsNone(pipeline.get_current_row_value("aStd", "missing"))
+            self.assertEqual(pipeline.get_current_row_value("bMean"), 9.0)
+            with patch("kiwi_scan.scan.point_pipeline.time.time", return_value=100.0):
+                point = pipeline.freeze_point_frame(frame)
+
+        self.assertEqual(
+            list(point.row_values),
+            [5.0, None, None, 9.0, 100.0, 10.0],
+        )
+        self.assertEqual(point.timestamp_indices, frozenset({4}))
+        self.assertEqual(log.method_calls, [])
+
+    def test_wrong_value_count_blanks_only_that_provider(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline.add_column_provider(_ProviderState(["aMean", "aStd"], [1.0]))
+        pipeline.add_column_provider(_ProviderState(["bMean"], [2.0, 3.0]))
+        pipeline.add_column_provider(_ProviderState(["cMean"], [4.0]))
+        pipeline.build_output_headers()
+
+        self.assertEqual(pipeline.get_data_column_values(), [None, None, None, 4.0])
+
+        with self.assertLogs("kiwi_scan.scan.point_pipeline", level="WARNING") as logs:
+            pipeline.report_data_column_failures()
+        messages = [record.getMessage() for record in logs.records]
+        self.assertEqual(len(messages), 2)
+        self.assertIn("(aMean, aStd)", messages[0])
+        self.assertIn("returned 1 value(s) for 2 column(s)", messages[0])
+        self.assertIn("(bMean)", messages[1])
+        self.assertIn("returned 2 value(s) for 1 column(s)", messages[1])
+
+    def test_failures_are_reported_once_per_scan(self) -> None:
+        pipeline = _make_pipeline()
+        stats = _FlakyProvider(["aMean", "aStd"], [1.0, 2.0])
+        pipeline.add_column_provider(stats)
+        pipeline.build_output_headers()
+        stats.error = RuntimeError("broken values")
+        for _ in range(3):
+            pipeline.get_data_column_values()
+
+        with self.assertLogs("kiwi_scan.scan.point_pipeline", level="WARNING") as logs:
+            pipeline.report_data_column_failures()
+        self.assertEqual(len(logs.records), 1)
+        message = logs.records[0].getMessage()
+        self.assertIn("_FlakyProvider (aMean, aStd)", message)
+        self.assertIn("3 value read(s) failed", message)
+        self.assertIn("get_values() raised RuntimeError: broken values", message)
+
+        with patch("kiwi_scan.scan.point_pipeline.logger") as log:
+            pipeline.report_data_column_failures()
+        self.assertEqual(log.method_calls, [])
+
+    def test_rows_use_provider_headers_captured_with_output_header(self) -> None:
+        pipeline = _make_pipeline(include_timestamps=False)
+        no_headers = MagicMock()
+        no_headers.get_headers.side_effect = RuntimeError("broken headers")
+        no_headers.get_values.return_value = [7.0]
+        provider = MagicMock()
+        provider.get_headers.return_value = ["mean"]
+        provider.get_values.return_value = [3.0]
+        pipeline.add_column_provider(no_headers)
+        pipeline.add_column_provider(provider)
+        with self.assertLogs("kiwi_scan.scan.point_pipeline", level="ERROR"):
+            headers = pipeline.build_output_headers()
+
+        provider.get_headers.side_effect = RuntimeError("headers changed")
+        frame = pipeline.begin_point_frame(idx=0, pos=1.0, values=[2.0])
+        point = pipeline.freeze_point_frame(frame)
+
+        self.assertEqual(headers, ["Position", "mean", "TS-ISO8601", "DET"])
+        self.assertEqual(len(point.row_values), len(headers))
+        self.assertEqual(point.row_values[1], 3.0)
+        self.assertEqual(pipeline.get_current_row_value("mean"), 3.0)
+        provider.get_headers.assert_called_once_with(False)
+        no_headers.get_values.assert_not_called()
 
 
 class TestPointPipelineState(unittest.TestCase):

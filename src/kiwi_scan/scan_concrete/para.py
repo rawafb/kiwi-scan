@@ -254,6 +254,10 @@ class ParaScan(BaseScan):
             self._fire_triggers("after")
         finally:
             self.busyflag = False
+            self._run_cleanup_step(
+                "columns:report",
+                self._point_pipeline.report_data_column_failures,
+            )
             self.performance.report()
         self._propagate_parallel_writer_error(
             writer_error,

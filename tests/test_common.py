@@ -549,6 +549,7 @@ class TestBaseScanRuntimeHelpers(unittest.TestCase):
             side_effect=RuntimeError("subscription stop failed")
         )
         scan.performance.report = MagicMock()
+        scan._point_pipeline.report_data_column_failures = MagicMock()
         monitor = MagicMock()
         monitor.close.side_effect = RuntimeError("monitor close failed")
 
@@ -565,6 +566,7 @@ class TestBaseScanRuntimeHelpers(unittest.TestCase):
         scan._stop_metadata_monitor.assert_called_once_with()
         scan._stop_subscriptions.assert_called_once_with()
         monitor.close.assert_called_once_with()
+        scan._point_pipeline.report_data_column_failures.assert_called_once_with()
         scan.performance.report.assert_called_once_with()
         self.assertFalse(scan.busyflag)
 

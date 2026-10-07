@@ -384,6 +384,7 @@ class TestCMScanExecution(CMScanTestCase):
             [call("before"), call("after")],
         )
         self.assertFalse(scan.busyflag)
+        scan._point_pipeline.report_data_column_failures.assert_called_once_with()
         scan.performance.report.assert_called_once_with()
 
     def test_scan_logs_actuator_failures_and_reaches_daq(self):

@@ -32,6 +32,8 @@ Non-positive values leave termination as before to motion, range, or stop condit
 ### Fixed
 
 - CAN undulator velocities encoding in unsigned 16-bit fields.
+- A data column provider that fails or returns the wrong number of values no longer shifts the following scan-file columns.
+  Its columns are left empty for that point, and one warning per provider is logged at scan cleanup.
 
 ### Migration notes
 

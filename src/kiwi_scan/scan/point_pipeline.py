@@ -6,13 +6,27 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from ._parallel_writer import _ParallelPointWriter
 from ._point_frame import _DetectorLayout, _PointFrame, _PreparedPoint
 from .column_provider import DataColumnProvider
 
 logger = logging.getLogger(__name__)
+
+# Each provider with the headers it had when the output header was built.
+_ProviderLayout = Tuple[Tuple[DataColumnProvider, Tuple[str, ...]], ...]
+
+
+@dataclass
+class _ProviderFailures:
+    """Failed value reads of one data column provider since the last report."""
+
+    provider: Any
+    headers: Tuple[str, ...]
+    first_failure: str
+    count: int = 1
 
 
 class PointPipeline:
@@ -41,6 +55,8 @@ class PointPipeline:
         self._detector_layout = detector_layout # fixed
         self._get_plugins = get_plugins
         self._data_column_providers: List[DataColumnProvider] = []
+        self._data_column_layout: Optional[_ProviderLayout] = None
+        self._data_column_failures: Dict[int, _ProviderFailures] = {}
 
         self._performance_enabled = performance_enabled or (lambda: False)
         self._record_perf_sample = record_perf_sample
@@ -126,31 +142,103 @@ class PointPipeline:
     # -------------------- providers / column construction --------------------
 
     def add_column_provider(self, provider: DataColumnProvider) -> None:
-        """Register an object that contributes dynamic scan-file columns."""
+        """Register an object that contributes dynamic scan-file columns.
+
+        Register providers before the scan starts: the output header fixes
+        which provider columns every row contains.
+        """
         if provider is not None:
             self._data_column_providers.append(provider)
+            self._data_column_layout = None
 
     def get_data_column_providers(self) -> List[DataColumnProvider]:
         """Return a defensive copy of registered providers."""
         return list(self._data_column_providers)
 
-    def get_data_column_headers(self, include_timestamps: bool) -> List[str]:
-        headers: List[str] = []
+    def _capture_data_column_layout(self, include_timestamps: bool) -> _ProviderLayout:
+        layout = []
         for provider in self._data_column_providers:
             try:
-                headers += list(provider.get_headers(include_timestamps))
+                headers = tuple(provider.get_headers(include_timestamps))
             except Exception:
                 logger.exception("Failed to read data column provider headers from %s", provider)
-        return headers
+                headers = ()
+            layout.append((provider, headers))
+        captured = tuple(layout)
+        self._data_column_layout = captured
+        return captured
+
+    def _get_data_column_layout(self) -> _ProviderLayout:
+        layout = self._data_column_layout
+        if layout is None:
+            layout = self._capture_data_column_layout(self.include_timestamps)
+        return layout
+
+    def get_data_column_headers(self, include_timestamps: bool) -> List[str]:
+        """Return provider headers and fix the provider columns of later rows.
+
+        Called when an output header is built. Every row built afterwards
+        holds exactly one value per header returned here.
+        """
+        layout = self._capture_data_column_layout(include_timestamps)
+        return [header for _provider, headers in layout for header in headers]
 
     def get_data_column_values(self) -> List[Any]:
+        """Return one value per provider header, in header order.
+
+        HOT PATH: no logging. A provider that raises, or returns more or fewer
+        values than it has headers, gets ``None`` in all of its columns so
+        later columns keep their position. Failures are counted and logged
+        once by ``report_data_column_failures()`` at scan cleanup.
+        """
         values: List[Any] = []
-        for provider in self._data_column_providers:
+        for index, (provider, headers) in enumerate(self._get_data_column_layout()):
+            if not headers:
+                continue
             try:
-                values += list(provider.get_values())
-            except Exception:
-                logger.exception("Failed to read data column provider values from %s", provider)
+                provider_values = list(provider.get_values())
+            except Exception as exc:  # noqa: BLE001 - counted, reported at cleanup
+                self._count_data_column_failure(index, provider, headers, exc)
+                values.extend([None] * len(headers))
+                continue
+            if len(provider_values) != len(headers):
+                self._count_data_column_failure(index, provider, headers, len(provider_values))
+                provider_values = [None] * len(headers)
+            values.extend(provider_values)
         return values
+
+    def _count_data_column_failure(
+        self,
+        index: int,
+        provider: DataColumnProvider,
+        headers: Tuple[str, ...],
+        problem: Union[Exception, int],
+    ) -> None:
+        """Count one failed provider read; only the first one is described."""
+        failures = self._data_column_failures.get(index)
+        if failures is not None:
+            failures.count += 1
+            return
+        if isinstance(problem, Exception):
+            first_failure = f"get_values() raised {type(problem).__name__}: {problem}"
+        else:
+            first_failure = (
+                f"get_values() returned {problem} value(s) for {len(headers)} column(s)"
+            )
+        self._data_column_failures[index] = _ProviderFailures(provider, headers, first_failure)
+
+    def report_data_column_failures(self) -> None:
+        """Log one warning per provider whose values failed since the last report."""
+        failures, self._data_column_failures = self._data_column_failures, {}
+        for failure in failures.values():
+            logger.warning(
+                "Data column provider %s (%s): %d value read(s) failed during the scan "
+                "and left its columns empty. First failure: %s",
+                type(failure.provider).__name__,
+                ", ".join(str(header) for header in failure.headers),
+                failure.count,
+                failure.first_failure,
+            )
 
     def update_data_column_provider_cache(
         self,
@@ -298,7 +386,12 @@ class PointPipeline:
             if provider_values is None
             else provider_values
         )
-        for name, item in zip(self.get_data_column_headers(False), values):
+        names = (
+            name
+            for _provider, headers in self._get_data_column_layout()
+            for name in headers
+        )
+        for name, item in zip(names, values):
             row[str(name)] = self.plain_scan_value(item)
 
     def _perf_is_enabled(self) -> bool:
@@ -485,8 +578,7 @@ class PointPipeline:
             )
         }
 
-        provider_headers = self.get_data_column_headers(frame.include_timestamps)
-        if provider_headers:
+        if any(headers for _provider, headers in self._get_data_column_layout()):
             self.update_data_column_provider_cache(last, frame.include_timestamps)
         last["TS"] = line_timestamp
         last.update(frame.completed_values)
