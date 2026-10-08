@@ -128,6 +128,61 @@ class TestScanRegistry(unittest.TestCase):
         self.assertIn("env_scan", SCAN_REGISTRY)
         self.assertEqual(SCAN_REGISTRY["env_scan"].__name__, "EnvScan")
 
+    def test_external_scan_with_postponed_annotations_dataclass(self):
+        with tempfile.TemporaryDirectory() as td:
+            scan_file = Path(td) / "dc_scan.py"
+            scan_file.write_text(
+                textwrap.dedent(
+                    """
+                    from __future__ import annotations
+
+                    from dataclasses import dataclass
+
+                    from kiwi_scan.scan.registry import register_scan
+
+                    @dataclass
+                    class Params:
+                        width: float = 1.0
+
+                    @register_scan("dc_scan")
+                    class DcScan:
+                        params: Params
+                    """
+                ).strip()
+            )
+
+            with patch.dict(os.environ, {"KIWI_SCAN_SCAN_PATH": td}, clear=False):
+                load_all_scan_types(raise_on_error=True)
+
+        self.assertIn("dc_scan", SCAN_REGISTRY)
+
+    def test_failing_external_scan_is_rolled_back_and_tried_once(self):
+        with tempfile.TemporaryDirectory() as td:
+            scan_file = Path(td) / "half_scan.py"
+            scan_file.write_text(
+                textwrap.dedent(
+                    """
+                    from kiwi_scan.scan.registry import register_scan
+
+                    @register_scan("half_scan")
+                    class HalfScan:
+                        pass
+
+                    raise RuntimeError("boom after registration")
+                    """
+                ).strip()
+            )
+
+            with patch.dict(os.environ, {"KIWI_SCAN_SCAN_PATH": td}, clear=False):
+                with self.assertLogs("kiwi_scan.scan.registry", level="ERROR") as logs:
+                    load_all_scan_types()
+                    load_all_scan_types()
+                    load_all_scan_types()
+
+        self.assertNotIn("half_scan", SCAN_REGISTRY)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("RuntimeError", logs.output[0])
+
 
 class TestTriggerParsing(unittest.TestCase):
     def test_trigger_action_reports_missing_value_with_config_path(self):
