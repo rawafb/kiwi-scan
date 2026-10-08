@@ -192,7 +192,13 @@ class SyncController:
                 self._timer.next_deadline() if self._timer is not None else None
             ]
 
-        deadlines = [deadline for deadline in deadlines if deadline is not None]
+        # A deadline that has already passed belongs to a source that is ready
+        # through its timeout. Waiting on it would return at once and spin while
+        # the other sources are still pending.
+        deadlines = [
+            deadline for deadline in deadlines
+            if deadline is not None and deadline > now
+        ]
         if not deadlines:
             return None
         return max(0.0, min(deadlines) - now)
