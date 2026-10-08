@@ -44,7 +44,7 @@ Upgrade:
 pip install --upgrade kiwi-scan
 ```
 
-Install IOC support
+Install IOC support (pulls `softioc` and `p4p`, needed by `scanioc` and `kiwi-pva-server`) 
 
 ```bash
 pip install "kiwi-scan[ioc]"
@@ -300,7 +300,7 @@ source ./mkvenv.sh
 - creates `.venv` if it does not exist
 - activates `.venv`
 - upgrades `pip` and installs build helpers on first setup
-- installs `kiwi-scan` in editable mode with development extras
+- installs `kiwi-scan` in editable mode with development and IOC extras
 - prefixes the shell prompt with `KIWI` so the active development shell is obvious
 
 If you want the environment to remain active in your current shell, always use `source ./mkvenv.sh` directly. `make` runs recipes in subprocesses and cannot keep your interactive shell activated.

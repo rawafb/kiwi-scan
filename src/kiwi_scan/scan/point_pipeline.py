@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from ._parallel_writer import _ParallelPointWriter
@@ -41,6 +42,7 @@ class PointPipeline:
         self._detector_layout = detector_layout # fixed
         self._get_plugins = get_plugins
         self._data_column_providers: List[DataColumnProvider] = []
+        self._warned_duplicate_headers: Set[Tuple[str, ...]] = set()
 
         self._performance_enabled = performance_enabled or (lambda: False)
         self._record_perf_sample = record_perf_sample
@@ -220,6 +222,14 @@ class PointPipeline:
         )
         headers += self.build_detector_headers(include_timestamps)
         headers += self.build_plugin_headers(include_timestamps)
+        duplicates = [
+            name for name, count in Counter(headers).items() if count > 1
+        ]
+        duplicate_key = tuple(sorted(duplicates))
+        if duplicates and duplicate_key not in self._warned_duplicate_headers:
+            self._warned_duplicate_headers.add(duplicate_key)
+            logger.warning("Duplicate output column headers: %s", duplicates)
+        # TODO: reserved keys such as Position, TS, idx and pos.
         logger.debug("Built output headers: %s", headers)
         return headers
 

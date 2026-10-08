@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Helmholtz-Zentrum Berlin für Materialien und Energie GmbH
+# SPDX-License-Identifier: MIT
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,6 +19,9 @@ class RangeExitDetector:
         self.forward = stop > start
 
     def _in_range(self, pos, start, stop):
+        """
+        TODO: tolerance in range check. E.g. useful for poll/para scan types for noice, FE etc.
+        """
         if pos is None or start is None or stop is None:
             logger.debug(f"Could not detect range: {start}:{pos}:{stop}")
             return False
@@ -23,7 +29,10 @@ class RangeExitDetector:
         return start <= pos <= stop if start <= stop else stop <= pos <= start
 
     def in_range(self, pos):
-        """Return True when ``pos`` is inside the configured scan range."""
+        """
+        TODO: integrate poll scan type checks for the start == stop case
+        Return True when ``pos`` is inside the configured scan range.
+        """
         return self._in_range(pos, self.start, self.stop)
 
     def prime(self, pos):

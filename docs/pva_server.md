@@ -20,7 +20,7 @@ Scan indices are newest-first:
 
 ## Starting the server
 
-After installing kiwi-scan, run:
+After installing kiwi-scan (`pip install kiwi-scan[ioc]`) , run:
 
 ```bash
 kiwi-pva-server

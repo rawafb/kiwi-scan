@@ -231,6 +231,37 @@ def make_fake_trigger_pv_class():
     return FakeTriggerPV
 
 
+def make_fake_metadata_pv_class():
+    """Metadata-monitor fake sharing callback and lifecycle behavior with FakePV."""
+
+    class FakeMetadataPV(FakePV):
+        default_get_value = 1
+
+        def __init__(self, pvname: str, **kwargs: Any) -> None:
+            super().__init__(pvname, **kwargs)
+            self.timestamp = 1000.0
+
+        def get_with_metadata(self, **kwargs: Any) -> Dict[str, Any]:
+            return {
+                "pvname": self.pvname,
+                "value": self.get(**kwargs),
+                "timestamp": self.timestamp,
+                "severity": self.severity,
+                "status": self.status,
+            }
+
+        def check_pv(self) -> None:
+            super().check_pv()
+            if not self.connected:
+                raise ConnectionError(self.pvname)
+
+        def disconnect(self) -> None:
+            super().disconnect()
+            self.connected = False
+
+    return FakeMetadataPV
+
+
 class FakeMonitorProvider:
     def __init__(self) -> None:
         self.callbacks_by_pv: Dict[

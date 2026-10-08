@@ -119,7 +119,7 @@ scan_runner \
   --scan_type para \
   --config-file ./mono.yaml \
   --dim actuator=energy,start=400,stop=410,steps=1000 \
-  --dim actuator=theta,start=4.5,stop=5.0.,steps=1000
+  --dim actuator=theta,start=4.5,stop=5.0,steps=1000
 ```
 
 Example statistic subscription:

@@ -3,7 +3,7 @@ _manifestfiles()
     local cur prev words cword
     _init_completion || return
 
-    local opts="-h --help --data-dir --manifest-file --last-scan --include-meta --include-manifest --missing --create --delete --dry-run --yes --log-level"
+    local opts="-h --help --data-dir --manifest-file --last-scan --include-meta --include-manifest --missing --create --delete --dry-run --yes --log-level --bundle-dir"
 
     case "$prev" in
         --data-dir)

@@ -1,7 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Helmholtz-Zentrum Berlin fuer Materialien und Energie GmbH
 # SPDX-License-Identifier: MIT
 
-"""Pluggable detector acquisition strategies for scan engines."""
+""" 
+Pluggable detector acquisition strategies for scan engines. 
+yaml:
+    - detector_reader_strategy: direct
+      detector_pvs_monitor: false
+    - detector_reader_strategy: direct
+      detector_pvs_monitor: true
+    - detector_reader_strategy: snapshot
+"""
 
 from __future__ import annotations
 
@@ -17,6 +25,10 @@ class DetectorPV(Protocol):
     """Detector-PV operations required by the built-in strategies."""
 
     pvname: str
+
+    def check_pv(self) -> None:
+        """Raise if the PV is uninitialized or disconnected."""
+        ...
 
     def get_with_metadata(self, *, use_monitor: bool) -> Optional[Any]:
         """Return the current value and metadata."""
@@ -66,19 +78,16 @@ class DirectDetectorReadStrategy(DetectorReadStrategy):
 
     def start(self) -> None:
         """Direct acquisition does not own additional resources."""
-        logger.debug( "Starting direct detector acquisition: detectors=%d use_monitor=%s",
-            len(self._detector_pvs), self._use_monitor)
+        logger.debug( "Starting direct detector acquisition: detectors=%d use_monitor=%s", len(self._detector_pvs), self._use_monitor)
 
     def read(self) -> List[Any]:
         readings: List[Any] = []
         for pv in self._detector_pvs:
             try:
-                reading = pv.get_with_metadata(
-                    use_monitor=self._use_monitor
-                )
+                reading = pv.get_with_metadata(use_monitor=self._use_monitor)
                 if reading is None:
                     # HOT PATH (blocks scan loop)                    
-                    logger.warning("Detector read returned no data: pv=%s", pv.pvname)
+                    logger.info("Detector read returned no data: pv=%s", pv.pvname)
                 readings.append(reading)
             except Exception as exc:  # noqa: BLE001
                 # HOT PATH (blocks scan loop)
@@ -92,10 +101,16 @@ class DirectDetectorReadStrategy(DetectorReadStrategy):
 
 
 class MonitorSnapshotDetectorReadStrategy(DetectorReadStrategy):
-    """Return atomic snapshots of values maintained by monitor callbacks."""
+    """ Return cached snapshot of values maintained by monitor callbacks. """
 
-    def __init__(self, detector_pvs: Sequence[DetectorPV]) -> None:
+    def __init__(
+        self,
+        detector_pvs: Sequence[DetectorPV],
+        *,
+        use_monitor: bool = True,
+    ) -> None:
         self._detector_pvs = tuple(detector_pvs)
+        self._use_monitor = use_monitor
         self._lock = threading.RLock()
         self._lifecycle_lock = threading.RLock()
         self._latest: List[Any] = [None] * len(self._detector_pvs)
@@ -103,6 +118,19 @@ class MonitorSnapshotDetectorReadStrategy(DetectorReadStrategy):
         self._started = False
         self._generation = 0
         self._active_generation: Optional[int] = None
+
+    def _warn_connection_status(self, phase: str) -> None:
+        """Check connections outside acquisition and aggregate failures."""
+        failures: List[str] = []
+        for pv in self._detector_pvs:
+            try:
+                pv.check_pv()
+            except Exception as exc:  # noqa: BLE001
+                # Diagnostics must not interrupt the scan, warn once for all
+                failures.append(f"{pv.pvname} ({exc})")
+        if failures:
+            logger.warning("Detector connection check %s: failed=%d/%d PVs=%s; snapshot readings retain the last cached values",
+                phase, len(failures), len(self._detector_pvs), "; ".join(failures))
 
     def _build_callback(
         self,
@@ -165,12 +193,11 @@ class MonitorSnapshotDetectorReadStrategy(DetectorReadStrategy):
                 raise
 
             logger.debug(
-                "Started detector snapshot acquisition: detectors=%d "
-                "callbacks=%d generation=%d",
-                len(self._detector_pvs),
-                len(self._callback_handles),
-                generation,
-            )
+                "Started detector snapshot acquisition: detectors=%d callbacks=%d generation=%d",
+                len(self._detector_pvs), len(self._callback_handles), generation)
+            if not self._use_monitor:
+                logger.warning("detector_pvs_monitor=false is ignored for snapshot detector reader strategy")
+            self._warn_connection_status("after reader startup") # only outside of HOT PATH
 
     def read(self) -> List[Any]:
         with self._lock:
@@ -183,6 +210,13 @@ class MonitorSnapshotDetectorReadStrategy(DetectorReadStrategy):
             with self._lock:
                 if not self._started and not self._callback_handles:
                     return
+                was_started = self._started
+
+            # Do not hold the snapshot lock while checking Channel Access.
+            if was_started:
+                self._warn_connection_status("before reader teardown")
+
+            with self._lock:
                 self._started = False
                 self._active_generation = None
                 callback_handles = list(self._callback_handles)
@@ -248,19 +282,14 @@ def create_detector_reader(
             use_monitor=use_monitor,
         )
     elif normalized == "snapshot":
-        strategy = MonitorSnapshotDetectorReadStrategy(detector_pvs)
-    else:
-        raise ValueError(
-            f"Unknown detector reader strategy {strategy_name!r}"
+        strategy = MonitorSnapshotDetectorReadStrategy(
+            detector_pvs,
+            use_monitor=use_monitor,
         )
+    else:
+        raise ValueError(f"Unknown detector reader strategy {strategy_name!r}")
 
-    logger.debug(
-        "Configured detector reader: strategy=%s detectors=%d "
-        "use_monitor=%s",
-        normalized,
-        len(detector_pvs),
-        use_monitor,
-    )
+    logger.debug("Configured detector reader: strategy=%s detectors=%d use_monitor=%s", normalized, len(detector_pvs), use_monitor)
     return DetectorReader(strategy)
 
 

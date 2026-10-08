@@ -77,7 +77,9 @@ class TriggerManager:
 
             value = TriggerManager._normalize_value(action.value)
             delay = float(action.delay or 0.0)
-
+            if delay < 0:
+                logger.warning(f"Invalid trigger delay {action.delay!r} for {pvname} (phase {phase})")
+                delay = 0.0
             try:
                 pv = EpicsPV(pvname, timeout=1.0, queueing_delay=0.0)
             except Exception:  # noqa: BLE001

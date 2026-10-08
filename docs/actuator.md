@@ -185,16 +185,21 @@ actuators:
 
 ## `actuator_concrete/undulator.py`
 
-`undulator.py` contains two-axis undulator actuator helpers based on `MultiActuator`.
+`undulator.py` contains two-axis undulator actuator helpers based on `MultiActuator` for gap/shift devices or gap-only devices
 
 ### `UndulatorViaEPICS`
 
-Represents an undulator with two axes, typically gap and shift.
-
+Represents an undulator with one or two axes, gap or gap/shift.
+```python
+undulator = UndulatorViaEPICS(gap_axis, shift_axis|None, config)  # gap (shift==None) or gap/shift
+```
 The current implementation supports jog-style operation by writing two velocities as a waveform to `jog_velocity_pv`.
+If `jog.command_pv` is configured, the start command is written after setting the velocities.
 
 ```python
 undulator.jog([gap_velocity, shift_velocity])
+# or gap only, (fist slot is used for gap):
+undulator.jog([gap_velocity, 0.0])
 ```
 
 ### `UndulatorViaCAN`
@@ -209,8 +214,22 @@ packed = (scaled_shift << 16) | scaled_gap
 ```
 
 The packed value is written to the configured jog command PV.
+The shift value bits are set to `0` for a gap-only devices.
 
 Values outside `0.0 .. 1.0` raise `ValueError` instead of being clipped.
+
+### `UndulatorControlCore`
+
+UndulatorControlCore is a hardware-independent PID controller for gap and optional shift axes. 
+
+```
+core = UndulatorControlCore(enabled_axes=["gap", "shift"])
+results = core.calculate(inputs, gains, now=time.monotonic())
+```
+
+Where,
+
+`inputs` and `gains` provide `AxisPidInputs` and `AxisPidGains` for every enabled axis
 
 ## Actuator helper API
 

@@ -70,6 +70,7 @@ def load_scan_config_from_file(config_dir, file_name, replacements) -> Dict[str,
 def load_scan_configs(config_dir, replacements):
     """
     Load scan configurations from YAML files in the specified directory.
+    Incompatible files are skipped with warning.
     Args:
         config_dir (str): Path to the directory containing YAML configuration files.
         replacements (dict)
@@ -84,9 +85,16 @@ def load_scan_configs(config_dir, replacements):
 
     for file_name in os.listdir(config_dir):
         if file_name.endswith(".yaml"):
-            config_data = load_scan_config_from_file(config_dir, file_name, replacements)
+            try:
+                config_data = load_scan_config_from_file(config_dir, file_name, replacements)
+                if not isinstance(config_data, dict):
+                    raise TypeError("top level is not a mapping")
+                scan_config = ScanConfig.from_dict(config_data)
+            except Exception as exc: # noqa: BLE001
+                logger.warning("Skipping scan config %s: %s", os.path.join(config_dir, file_name), exc)
+                continue
             config_name = os.path.splitext(file_name)[0]
-            scan_configs[config_name] = ScanConfig.from_dict(config_data)
+            scan_configs[config_name] = scan_config
     return scan_configs
 
 def create_scan_with_config(

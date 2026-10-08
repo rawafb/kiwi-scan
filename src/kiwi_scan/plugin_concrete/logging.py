@@ -22,7 +22,10 @@ from kiwi_scan.scan.common import BaseScan
 
 @register_plugin("LoggingPlugin")
 class LoggingPlugin(ScanPlugin):
-    """ Production diagnositcs, failures must not abort the scan """
+    """
+    TODO: gracefully handle ctrl+c during init, maybe the best place is common.py
+    Production diagnositcs, failures must not abort the scan 
+    """
     def __init__(
         self,
         name: str,

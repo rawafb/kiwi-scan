@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Helmholtz-Zentrum Berlin für Materialien und Energie GmbH
 # SPDX-License-Identifier: MIT
 
-"""Bounded, FIFO persistence for immutable scan points."""
-
 from __future__ import annotations
 
+import io
+import logging
+import os
 import queue
 import threading
 import time
@@ -15,6 +16,7 @@ from typing import Any, Callable, ClassVar, Optional
 
 from kiwi_scan.scan._point_frame import _PreparedPoint
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class _WriteRequest:
@@ -25,17 +27,15 @@ class _WriteRequest:
 
 
 class _ParallelPointWriter:
-    """Write prepared scan points on one persistent background thread.
-
-    Raw POSIX timestamps cross the scan/writer boundary. Timestamp rendering is
-    deliberately performed only here so ISO-8601 conversion cannot consume scan
-    loop CPU time.
+    """
+    Backgound scan FIFO writer.
+    Raw POSIX timestamps of the hot scan path is performed here.
+    ISO-8601 conversion cannot consume scan loop CPU time.
+    TODO: tune queue size for given applications, changing the flushing strategy will affact the optimum size.
     """
 
-    _SENTINEL = object()
-    _TIMESTAMP_FORMATS: ClassVar[frozenset[str]] = frozenset(
-        {"iso8601", "unix"}
-    )
+    _SENTINEL = object()   # unique ID for stop recording
+    _TIMESTAMP_FORMATS: ClassVar[frozenset[str]] = frozenset({"iso8601", "unix"})
 
     def __init__(
         self,
@@ -102,10 +102,7 @@ class _ParallelPointWriter:
         """Render one prepared point according to the file timestamp format."""
         timestamp_output_format = str(timestamp_output_format).strip().lower()
         if timestamp_output_format not in cls._TIMESTAMP_FORMATS:
-            raise ValueError(
-                "timestamp_output_format must be one of: iso8601, unix "
-                f"(got {timestamp_output_format!r})"
-            )
+            raise ValueError(f"timestamp_output_format must be one of: iso8601, unix (got {timestamp_output_format!r})")
 
         def format_column(index: int, value: Any) -> str:
             if index not in point.timestamp_indices:
@@ -120,7 +117,7 @@ class _ParallelPointWriter:
         )
 
     def start(self, output_file: str) -> None:
-        """Start the persistent writer for ``output_file``."""
+        """Start writing the ``output_file``."""
         with self._lifecycle_lock:
             if self._state == "running":
                 if self._output_file != output_file:
@@ -145,11 +142,11 @@ class _ParallelPointWriter:
                 raise
 
     def submit(self, point: _PreparedPoint) -> None:
-        """Queue one point, blocking only when bounded backpressure is needed."""
+        """Queue one point, blocking only when writer queue is full. TODO: warning on blocking queue"""
         self._enqueue(_WriteRequest(point=point))
 
     def submit_and_wait(self, point: _PreparedPoint) -> None:
-        """Queue one point and synchronously report its persistence result."""
+        """Queue one point and synchronously reports the result. Nothing is ever dropped """
         completed = threading.Event()
         request = _WriteRequest(point=point, completed=completed)
         self._enqueue(request)
@@ -158,7 +155,7 @@ class _ParallelPointWriter:
             raise request.error
 
     def stop(self) -> None:
-        """Stop accepting points, drain the queue, flush, and join the worker."""
+        """ End of scan: stop accepting points, drain the queue, flush, and join the worker."""
         with self._lifecycle_lock:
             if self._state == "new":
                 self._state = "stopped"
@@ -191,15 +188,21 @@ class _ParallelPointWriter:
             self._queue_high_water = max(self._queue_high_water, queued)
 
     def _run(self) -> None:
+        """
+        TODO: Optimize for extreme cases. In a step scan with a small number of detectors flushing the output
+        could be done more frequent. For scans with very high data rates and nfs mounts the data could be bigger.
+        """
         try:
             with ExitStack() as stack:
                 output = None
 
                 try:
-                    output = stack.enter_context(
-                        open(str(self._output_file), "a", encoding="utf-8")
-                    )
-                except BaseException as exc:  # noqa: BLE001
+                    # TODO: set `buffering` manually or not? For now defaults: local disc ~4kB, NFS ~1MB
+                    output = stack.enter_context(open(str(self._output_file), "a", encoding="utf-8"))
+                    blksize = os.fstat(output.fileno()).st_blksize
+                    logger.debug( "FIFO writer %s: buffer %d bytes", self._output_file, blksize if blksize > 1 else io.DEFAULT_BUFFER_SIZE)
+                except BaseException as exc:
+                    logger.exception("Point writer thread for %s crashed", self._output_file)
                     self._record_error(exc)
 
                 while True:
@@ -226,14 +229,18 @@ class _ParallelPointWriter:
 
                                 if request.completed is not None:
                                     output.flush()
-                            except BaseException as exc:  # noqa: BLE001
+                            except BaseException as exc: 
+                                logger.debug("Point writer failed on %s (%s request, %d still queued, row=%.200r): %r",
+                                    self._output_file, "sync" if request.completed is not None else "async",
+                                    self._queue.qsize(), request.point.row_values, exc, exc_info=True)
                                 request.error = self._record_error(exc)
 
                         if request.completed is not None:
                             request.completed.set()
                     finally:
                         self._queue.task_done()
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
+            logger.exception( "Point writer for %s failed while writing or closing the file; this exception should never happen", self._output_file)
             self._record_error(exc)
 
     def _record_queue_delay(self, enqueued_at: float) -> None:

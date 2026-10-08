@@ -46,3 +46,29 @@ Kiwi Scan synchronized data acquisition via subscriptions has been tested at
 1.2 kHz using the [feedback-core example IOC](https://github.com/hz-b/feedback-core)
 and its [performance scan configuration](https://github.com/hz-b/feedback-core/blob/main/testIoc/iocBoot/iocfeedbackTest/performance.yaml).
 Those test runs acquired 10,000 points without observed loss.  
+
+
+## Example scan-loop hot-path performance tests
+
+The hot processing path (core pipeline) snapshot reading, row caching, and writing remains fast as the number of PVs increases. 
+These results are not hard real-time guarantees, as system load can affect latency and timing at high acquisition rates.
+
+![Scan-loop hot path with ~ 100 µs time budget](images/scan_loop_example.png)
+
+### Test configuration
+
+Three configurations has been measured:
+- 4 PVs with timestamps and [performance](https://github.com/hz-b/kiwi-scan/blob/master/docs/plugins.md#timestampperformanceplugin) plugin calculations, 18 data columns in total
+- Simple data aquisition of 2000 PVs and with 30 PVs
+
+| Stage | 4 PVs, 18 columns | 2,000 PVs | 30 PVs
+|---|---:|---:|---:|
+| Read data snapshot | 2 µs | 19 µs | 2 µs | 
+| Plugins (derived columns) | 21 µs | - | - |
+| Row cache (stage row) | 24 µs | 1.9 ms | 36 µs |
+| Write (freeze and queue) | 25 µs | 1.5 ms | 44  µs |
+
+Test system:
+
+- Intel Core i5-13400, 16 GB RAM, Debian 12.15, Linux 6.1.180 (`PREEMPT_DYNAMIC`)
+- CPU load measured using Debian `sysstat`: less than 1%

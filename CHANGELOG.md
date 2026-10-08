@@ -38,6 +38,7 @@ Non-positive values leave termination as before to motion, range, or stop condit
 - Replace `kiwi_scan.dataloader` and `kiwi_scan.metadata_loader` imports with imports from `kiwi_scan.data`.
 - Replace `kiwi_scan.io` imports with imports from `kiwi_scan.export`.
 - Replace `kiwi_scan.stats` imports with imports from `kiwi_scan.tools`.
+- Replace `kiwi_scan.manifestwriter` with `kiwi_scan.data.manifestwriter`.
 - Plugins must use the `ScanPluginContext` protocol.
 
 ## [0.5.1] - 2026-07-30

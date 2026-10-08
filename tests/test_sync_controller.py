@@ -1,3 +1,4 @@
+import threading
 import unittest
 
 from kiwi_scan.datamodels import SubscriptionConfig
@@ -143,6 +144,31 @@ class TestSyncController(unittest.TestCase):
         clock.value = 0.2
         self.assertTrue(controller.is_ready())
 
+    def test_timed_out_source_does_not_spin_while_other_source_pending(self):
+        clock = FakeClock(0.0)
+        timed = SubscriptionConfig("timed", "sync", pv="TEST:TIMED", timeout=0.1)
+        pending = SubscriptionConfig("pending", "sync", pv="TEST:PENDING")
+        controller = SyncController([timed, pending], clock=clock)
+
+        controller.arm()
+        clock.value = 0.2  # "timed" is ready through its timeout.
+
+        wait_timeouts = []
+        cond_wait = controller._cond.wait
+
+        def recording_wait(timeout=None):
+            wait_timeouts.append(timeout)
+            if len(wait_timeouts) == 1:
+                # Deliver the pending event from another thread while blocked.
+                threading.Timer(0.05, controller.note_event, ("pending",)).start()
+            return cond_wait(timeout)
+
+        controller._cond.wait = recording_wait
+
+        self.assertTrue(controller.wait())
+        # One blocking wait for the event, not a zero-timeout spin.
+        self.assertEqual(wait_timeouts, [None])
+
     def test_set_timer_period_restarts_timer_epoch(self):
         clock = FakeClock(5.0)
         controller = SyncController([], timer_period=1.0, clock=clock)
@@ -155,6 +181,17 @@ class TestSyncController(unittest.TestCase):
         self.assertFalse(controller.is_ready())
         clock.value = 6.5
         self.assertTrue(controller.is_ready())
+
+    def test_next_wait_time_ignores_passed_deadlines(self):
+        clock = FakeClock(0.0)
+        first = SubscriptionConfig("first", "sync", pv="TEST:A", timeout=0.1)
+        second = SubscriptionConfig("second", "sync", pv="TEST:B", timeout=0.3)
+        controller = SyncController([first, second], clock=clock)
+
+        controller.arm()
+        self.assertAlmostEqual(controller._next_wait_time(0.0), 0.1)
+        # After the first timeout, wait for the second deadline, not 0.
+        self.assertAlmostEqual(controller._next_wait_time(0.15), 0.15)
 
 
 if __name__ == "__main__":

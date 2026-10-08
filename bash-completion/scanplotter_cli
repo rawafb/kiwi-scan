@@ -6,7 +6,7 @@ _scanplotter_cli()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="--help -h --x_column --series --join-tol --log-level --manifest-index --scan-index"
+    opts="--help -h --x_column --series --join-tol --log-level --manifest-index --scan-index --manifest-file"
 
     case "$prev" in
         --log-level)

@@ -178,7 +178,7 @@ class BaseScan(ScanABC):
             get_plugins=lambda: tuple(self.plugins),
             performance_enabled=lambda: self.performance.enabled,
             record_perf_sample=self.performance.record_sample,
-            writer_queue_size=1024,
+            writer_queue_size=1024,    # TODO: optimal size
         )
         self.output_manager.set_header_factory(self._point_pipeline.build_output_headers)
 
@@ -327,6 +327,7 @@ class BaseScan(ScanABC):
             )
             logger.debug("Created detector PV: %s", pvname)
             self.detector_pvs.append(pv)
+        logger.info("PVs connected: %d", len(self.detector_pvs))
         self._detector_reader: DetectorReader = create_detector_reader(
             self.cfg.detector_reader_strategy,
             self.detector_pvs,
@@ -798,7 +799,6 @@ class BaseScan(ScanABC):
         """Initialize services required by a scan."""
         self.write_header_to_output_file()
         self._start_detector_reader()
-        self._detector_reader.start()
         self._start_plugins()
         self._start_subscriptions()
         logger.debug("Actuators: %s, positions: %s", list(self.actuators), positions)

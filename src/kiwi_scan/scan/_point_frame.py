@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _DetectorLayout:
-    """Immutable detector-column metadata compiled once per detector list.
-
-    Timestamp headers are the internal, representation-neutral cache keys.
+    """
+    Immutable detector-column metadata compiled once per detector list.
+    Timestamp headers are the internal, representation-neutral cache keys (TS).
     File-specific timestamp headers are produced by ``BaseScan``.
+    TODO: Add duplicate header check, also validate internal TS-names.
     """
 
     headers: Tuple[str, ...]
@@ -37,11 +38,11 @@ class _DetectorLayout:
 
 @dataclass(frozen=True)
 class _PreparedPoint:
-    """Immutable hand-off from the scan thread to point persistence.
-
-    ``row_values`` always contains raw POSIX timestamps. ``timestamp_indices``
-    identifies the columns that the writer may render as ISO-8601 or Unix
-    doubles without making the scan thread perform any timestamp formatting.
+    """
+    ``row_values`` always contains raw POSIX timestamps. 
+    ``timestamp_indices`` identifies the columns that the writer may render as ISO-8601 or Unix format
+    The scan thread perform no timestamp formatting
+    TODO: nested dictionaries, lists and arrays remain shared, add ownership or make a copy, no need to modify this data afterward yet.
     """
 
     row_values: Tuple[Any, ...]
@@ -126,9 +127,10 @@ class _PointFrame:
         *,
         output_timestamps: bool = True,
     ) -> None:
-        """Append values, optionally omitting timestamp columns from output.
-
-        Cached metadata is retained independently of the output policy.
+        """
+        Append values and optional timestamp columns from output.  Cached metadata (timestamp) is stored for debugging
+        For maximum robustness a failed plugin reading should not stop the scan, detector point and scan continues.
+        TODO: plugins must ensure consistant data sets but must not fail scan, add rete limited logging
         """
         self._require_open()
 
@@ -205,7 +207,10 @@ class _PointFrame:
         timestamp_headers: Tuple[str, ...],
         detector_values: List[Any],
     ) -> None:
-        """Append aligned detector values when timestamp columns are disabled."""
+        """ 
+        Append aligned detector values when timestamp columns are disabled. 
+        Timestamp data must be available in detector values!
+        """
         output_values = self.output_values
         current_values = self.current_values
         completed_values = self.completed_values

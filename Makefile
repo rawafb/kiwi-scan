@@ -76,7 +76,7 @@ lint: ## Run pylint, ruff, and pyright (uses mkvenv.sh when needed)
 	@echo '  PYLINT'
 	@echo '========================================================================'
 	@$(WITH_VENV); \
-	PYTHONPATH=src pylint src/kiwi_scan || true
+	PYTHONPATH=src pylint src/kiwi_scan
 	@echo '========================================================================'
 	@echo
 	@echo '========================================================================'
