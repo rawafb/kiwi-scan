@@ -75,6 +75,7 @@ scanioc = "kiwi_scan.cli.scanioc:main"
 kiwi-pva-server = "kiwi_scan.cli.pva_server:main"
 kiwi-convert = "kiwi_scan.cli.convert:main"
 kiwi2spec = "kiwi_scan.cli.kiwi2spec:main"
+kiwi-config-defaults = "kiwi_scan.cli.config_defaults:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

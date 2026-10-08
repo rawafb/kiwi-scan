@@ -230,6 +230,7 @@ After installation, the command line tools are available:
 - `kiwi-pva-server` - run the PVA server
 - `kiwi-convert` - convert scan data through the generic export framework
 - `kiwi2spec` - export one or more scan data files, including metadata, to SPEC
+- `kiwi-config-defaults` - print the full ScanConfig YAML structure with default values
 
 Examples:
 
@@ -244,6 +245,7 @@ scanioc --help
 kiwi-pva-server --help
 kiwi-convert --help
 kiwi2spec --help
+kiwi-config-defaults --help
 ```
 See the [Makefile helpers](#makefile-helpers) section for information how to install the bash completion scripts.
 
