@@ -7,7 +7,10 @@ from typing import Any, Dict, List, Protocol
 
 
 class DataColumnProvider(Protocol):
-    """Protocol for objects that add columns to scan output rows.
+    """
+    TODO: Check index and fill missing data cols from buggy column providers with "None/nan"
+          This could be integrated in this common module
+    Protocol for objects that add columns to scan output rows.
 
     Collect values continuously, e.g. from subscription callbacks. 
     Return the latest snapshot with get_values().

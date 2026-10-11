@@ -38,13 +38,10 @@ class MonitorValueFormatter:
 
         if isinstance(item, dict):
             if "value" not in item:
-                self.logger.debug(
-                    "Monitor item dict has no 'value' key; item keys=%r",
-                    list(item.keys()),
-                )
+                self.logger.debug( "Monitor item dict has no 'value' key; item keys=%r", list(item.keys()))
             return item.get("value")
 
-        self.logger.debug("Monitor item is not a dict; using raw item value: %r", item)
+        # self.logger.debug("Monitor item is not a dict; using raw item value: %r", item)
         return item
 
     def extract_timestamp(self, item: Any) -> Any:

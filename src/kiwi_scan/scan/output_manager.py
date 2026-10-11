@@ -27,7 +27,6 @@ class OutputManager:
 
     BaseScan remains responsible for deciding *when* metadata
     monitoring, point persistence, and other scan lifecycle actions occur.
-    TODO: atomic file creation for multiple scan tasks
     TODO: clean up redundant checks (header written, writing enabled etc.)
     """
 
@@ -142,35 +141,33 @@ class OutputManager:
             if base_filename is None
             else base_filename
         )
+        name, ext = os.path.splitext(filename)
 
+        # Mode "x" makes the existence check and the creation one atomic step,
+        # so another scan (or process) can never be handed the same file.
+        new_filename = os.path.join(
+            self.data_dir,
+            f"{name}-{self.output_timestamp}{ext}",
+        )
         while True:
-            name, ext = os.path.splitext(filename)
-            new_filename = os.path.join(
-                self.data_dir,
-                f"{name}-{self.output_timestamp}{ext}",
-            )
-            if not os.path.exists(new_filename):
-                with open(new_filename, "w", encoding="utf-8"):
+            try:
+                with open(new_filename, "x", encoding="utf-8"):
                     pass
-                logger.debug("Created output file: %s", new_filename)
-                return new_filename
-
-            logger.info("Output filename already exists; adding a random suffix: %s", new_filename)
-            random_suffix = "".join(
-                random.choices(  # nosec B311
-                    string.ascii_letters + string.digits,
-                    k=6,
+            except FileExistsError:
+                logger.info("Output filename already exists; adding a random suffix: %s", new_filename)
+                random_suffix = "".join(
+                    random.choices(  # nosec B311
+                        string.ascii_letters + string.digits,
+                        k=6,
+                    )
                 )
-            )
-            new_filename = os.path.join(
-                self.data_dir,
-                f"{name}-{self.output_timestamp}_{random_suffix}{ext}",
-            )
-            if not os.path.exists(new_filename):
-                with open(new_filename, "w", encoding="utf-8"):
-                    pass
-                logger.debug("Created output file: %s", new_filename)
-                return new_filename
+                new_filename = os.path.join(
+                    self.data_dir,
+                    f"{name}-{self.output_timestamp}_{random_suffix}{ext}",
+                )
+                continue
+            logger.debug("Created output file: %s", new_filename)
+            return new_filename
 
     def generate_and_create_file(
         self,

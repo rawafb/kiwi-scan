@@ -84,6 +84,38 @@ class TestOutputManager(unittest.TestCase):
             )
             self.assertTrue(Path(result).is_file())
 
+    def test_generate_and_create_file_never_reuses_file_created_concurrently(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = OutputManager(
+                data_dir=tmp,
+                requested_output_file="scan.txt",
+                output_timestamp="20260825160000",
+            )
+            other = OutputManager(
+                data_dir=tmp,
+                requested_output_file="scan.txt",
+                output_timestamp="20260825160000",
+            )
+            taken = Path(tmp) / "scan-20260825160000.txt"
+            real_open = open
+            raced = []
+
+            def racing_open(path, mode="r", *args, **kwargs):
+                # Another scan creates and fills the file just before we create it.
+                if not raced and str(path) == str(taken):
+                    raced.append(True)
+                    self.assertEqual(other.generate_and_create_file(), str(taken))
+                    with real_open(taken, "w", encoding="utf-8") as file:
+                        file.write("other scan\n")
+                return real_open(path, mode, *args, **kwargs)
+
+            with patch("builtins.open", side_effect=racing_open):
+                result = manager.generate_and_create_file()
+
+            self.assertNotEqual(result, str(taken))
+            self.assertTrue(Path(result).is_file())
+            self.assertEqual(taken.read_text(encoding="utf-8"), "other scan\n")
+
     def test_ensure_output_file_exists_is_lazy_idempotent_and_respects_disable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             manager = OutputManager(

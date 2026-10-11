@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Helmholtz-Zentrum Berlin fuer Materialien und Energie GmbH
 # SPDX-License-Identifier: MIT
 
-"""Performance timing and diagnostic reporting for scan execution."""
+""" Performance timing and diagnostic reporting for scan execution.
+    TODO: Iterative calculations for stddev, P95, (or memory limit)
+"""
 
 from __future__ import annotations
 

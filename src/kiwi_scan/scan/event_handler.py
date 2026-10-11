@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Helmholtz-Zentrum Berlin fuer Materialien und Energie GmbH
 # SPDX-License-Identifier: MIT
 
-"""Default subscription event handlers for scan runtime events."""
+"""
+TODO: Stop handler values and exception handling per actuator.
+Default subscription event handlers for scan runtime events."""
 
 from __future__ import annotations
 
@@ -40,12 +42,9 @@ class _ScanEventContext(Protocol):
 
 
 class ScanEventHandler:
-    """Handle default subscription roles without owning scan orchestration.
-
-    The handler receives a narrow scan-runtime context and mutates the same
-    event state that historically lived behind ``BaseScan._on_*_event``.
-    Subscription callbacks are registered directly to these bound methods, so
-    no generic routing layer is added to the event path.
+    """
+    TODO: non-numeric sync values
+    Handle default subscription roles without owning scan orchestration.
     """
 
     def __init__(self, context: _ScanEventContext) -> None:
@@ -70,12 +69,7 @@ class ScanEventHandler:
         with context._tick_cond:
             context._tick_seq += 1
             context._tick_cond.notify_all()
-        logger.debug(
-            "[heartbeat] %s=%r (seq=%d)",
-            ev.pvname,
-            ev.value,
-            context._tick_seq,
-        )
+        # logger.debug("[heartbeat] %s=%r (seq=%d)", ev.pvname, ev.value, context._tick_seq)
 
     def on_stop_event(
         self,
@@ -129,12 +123,4 @@ class ScanEventHandler:
             except (TypeError, ValueError):
                 context._position = ev.value
             context._position_sync_subscription_set = True
-
-        logger.debug(
-            "[sync] %s=%r -> _position=%r (source=%r, sub=%s)",
-            ev.pvname,
-            ev.value,
-            context._position,
-            ev.source,
-            subscription.name,
-        )
+        # logger.debug("[sync] %s=%r -> _position=%r (source=%r, sub=%s)", ev.pvname, ev.value, context._position, ev.source, subscription.name)

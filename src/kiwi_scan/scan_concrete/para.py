@@ -57,7 +57,7 @@ class ParaScan(BaseScan):
         self.register_subscription_role("stop", self.event_handler.on_stop_event)
         self.register_subscription_role("trigger", self.event_handler.on_trigger_event)
         self.register_subscription_role("plugin", self.event_handler.on_plugin_event)
-        
+        # TODO: sync subscription handling        
         self._maxindex = 0
         self._maxindex = self.scan_dimensions[0].steps
 

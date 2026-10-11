@@ -25,7 +25,7 @@ class ScanABC(ABC):
         """Initialize scan with configuration."""
 
     @abstractmethod
-    def scan(self, positions: Dict[str, List[Any]], monitor: Optional[BaseMonitor] = None):
+    def scan(self, positions: Dict[str, List[Any]], monitor: Optional[BaseMonitor] = None) -> None:
         """Perform the scan for the given positions."""
 
     @abstractmethod
@@ -33,7 +33,7 @@ class ScanABC(ABC):
         """Load and return the scan data from output file."""
 
     @abstractmethod
-    def get_output_file(self) -> str:
+    def get_output_file(self) -> Optional[str]:
         """Return the current output file path, or None until a file is created."""
 
     @abstractmethod

@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
@@ -17,7 +19,8 @@ SCAN_ENVVAR = "KIWI_SCAN_SCAN_PATH"
 SCAN_REGISTRY: Dict[str, type] = {}
 
 _BUILTINS_REGISTERED = False
-_LOADED_EXTERNAL_SCAN_FILES: Set[Path] = set()
+# Every external file is executed at most once per process, even if it fails.
+_ATTEMPTED_EXTERNAL_SCAN_FILES: Set[Path] = set()
 
 
 def register_scan_class(name: str, cls: type, *, replace: bool = False) -> None:
@@ -68,9 +71,13 @@ def _register_builtin_scan_types() -> None:
 def _import_external_scan_file(pyfile: Path, raise_on_error: bool = False) -> None:
     pyfile = pyfile.resolve()
 
-    if pyfile in _LOADED_EXTERNAL_SCAN_FILES:
+    if pyfile in _ATTEMPTED_EXTERNAL_SCAN_FILES:
         return
-    module_name = f"kiwi_scan_ext_scan_{pyfile.stem}_{abs(hash(str(pyfile)))}"
+    _ATTEMPTED_EXTERNAL_SCAN_FILES.add(pyfile)
+
+    digest = hashlib.sha256(str(pyfile).encode("utf-8")).hexdigest()[:12]
+    module_name = f"kiwi_scan_ext_scan_{pyfile.stem}_{digest}"
+    registry_before = dict(SCAN_REGISTRY)
 
     try:
         spec = importlib.util.spec_from_file_location(module_name, str(pyfile))
@@ -78,12 +85,18 @@ def _import_external_scan_file(pyfile: Path, raise_on_error: bool = False) -> No
             raise ImportError(f"Could not create import spec for {pyfile}")
 
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)  # type: ignore[attr-defined]
+        # dataclasses, pickle and typing look the module up by name
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
 
-        _LOADED_EXTERNAL_SCAN_FILES.add(pyfile)
         logger.debug("Imported external scan module: %s", pyfile)
 
     except Exception:
+        # A failed file contributes nothing: drop the module and any scan
+        # types it registered before failing.
+        sys.modules.pop(module_name, None)
+        SCAN_REGISTRY.clear()
+        SCAN_REGISTRY.update(registry_before)
         logger.exception("Failed to import external scan module %s", pyfile)
         if raise_on_error:
             raise

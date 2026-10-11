@@ -7,7 +7,11 @@ import logging
 from typing import Any, Callable, Dict, List, Mapping, Optional, Union
 
 from kiwi_scan.actuator.single import AbstractActuator, PvEvent
-from kiwi_scan.datamodels import ActuatorConfig, SubscriptionConfig
+from kiwi_scan.datamodels import (
+    ActuatorConfig,
+    SubscriptionConfig,
+    validate_subscription_names,
+)
 from kiwi_scan.epics_wrapper import EpicsPV
 
 logger = logging.getLogger(__name__)
@@ -17,18 +21,18 @@ ActuatorConfigLike = Union[ActuatorConfig, Dict[str, Any]]
 
 
 class SubscriptionManager:
-    """Manage subscription setup, dispatch, and teardown for a scan.
+    """
+    TODO: Roles without a handler are dropped silently
+    Manage subscription setup, dispatch, and teardown for a scan.
 
     A subscription can be configured in two ways:
 
     * directly through a PV name via ``SubscriptionConfig.pv``
-    * indirectly via ``SubscriptionConfig.actuator`` plus ``source`` 
-      so that it can be called simply "rbv" for example
+    * indirectly via ``SubscriptionConfig.actuator`` plus ``source``  (e.g. rbv)
 
-    When subscriptions are started, the manager prefers a monitor-capable
-    actuator backend. This keeps all monitor handling inside the actuator layer
-    when possible. If no actuator backend offers monitors, the manager falls
-    back to creating direct ``EpicsPV`` monitors.
+    Monitor handling is kept inside the actuator layer. 
+    If no actuator backend offers monitors (e.g. simulation backend), 
+    the manager falls back to creating direct ``EpicsPV`` monitors.
     """
     def __init__(
         self,
@@ -37,18 +41,17 @@ class SubscriptionManager:
         actuator_configs: Optional[Mapping[str, ActuatorConfigLike]] = None,
         actuators: Optional[Dict[str, AbstractActuator]] = None,
     ) -> None:
-        """Store subscription definitions and runtime dependencies.
-
-        Parameters
-        ----------
-        subscriptions:
-            Subscription definitions to manage.
-        actuator_configs:
-            Mapping used to resolve ``actuator + source`` subscriptions to
-            concrete PV names.
-        actuators:
-            Live actuator instances. They are inspected to find a backend that
-            supports monitors.
+        """
+        Manage runtime dependencies:
+            TODO: An unreachable subscription PV is silent on the normal backend
+            TODO: velocity falls back to the position setpoint
+        Parameters:
+            subscriptions:
+                Subscription definitions to manage.
+            actuator_configs:
+                Mapping used to resolve ``actuator + source`` subscriptions to concrete PV names.
+            actuators:
+                Live actuator instances. They are inspected to find a backend that supports monitors.
         """
         self._subscriptions: List[SubscriptionConfig] = list( subscriptions or [])
         self._actuator_configs: Dict[str, ActuatorConfigLike] = dict( actuator_configs or {})
@@ -327,6 +330,8 @@ class SubscriptionManager:
 
         Raises
         ------
+        ValueError
+            Rejects duplicate subscription names before creating any monitors.
         Exception
             Propagates startup failures after best-effort cleanup of partially
             created subscriptions.
@@ -340,6 +345,7 @@ class SubscriptionManager:
             self._started = True
             return
 
+        validate_subscription_names(self._subscriptions)
         self._reset_runtime_state()
         self._provider = self._get_subscription_provider()
 

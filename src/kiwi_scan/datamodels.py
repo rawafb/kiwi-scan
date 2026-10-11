@@ -3,7 +3,7 @@
 
 import logging
 from dataclasses import dataclass, field, fields
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Union
 
 logger = logging.getLogger(__name__)
 
@@ -384,6 +384,16 @@ class SubscriptionConfig:
         return config
 
 
+def validate_subscription_names(subscriptions: Iterable[SubscriptionConfig]) -> None:
+    """Reject duplicate names across all roles; distinct names may share a PV."""
+    seen_names: Set[str] = set()
+    for subscription in subscriptions:
+        name = subscription.name
+        if name in seen_names:
+            raise ValueError(f"Duplicate subscription name: {name!r}")
+        seen_names.add(name)
+
+
 @dataclass
 class PluginConfig:
     """Common plugin declaration with plugin-specific parameters left untyped."""
@@ -532,6 +542,7 @@ class ScanConfig:
                 raise ValueError(f"Invalid subscriptions[{index}]: {exc}") from exc
             validated_subscriptions.append(subscription)
 
+        validate_subscription_names(validated_subscriptions)
         self.subscriptions = validated_subscriptions
 
     @staticmethod
@@ -620,6 +631,7 @@ class ScanConfig:
                 subscriptions.append(SubscriptionConfig.from_dict(subscription_data))
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"Invalid subscriptions[{index}]: {exc}") from exc
+        validate_subscription_names(subscriptions)
         return subscriptions
 
     @staticmethod
