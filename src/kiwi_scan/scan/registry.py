@@ -8,6 +8,7 @@ import importlib.util
 import logging
 import os
 import sys
+from importlib.abc import ExecutionLoader
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
@@ -81,13 +82,17 @@ def _import_external_scan_file(pyfile: Path, raise_on_error: bool = False) -> No
 
     try:
         spec = importlib.util.spec_from_file_location(module_name, str(pyfile))
-        if spec is None or spec.loader is None:
+        if spec is None:
             raise ImportError(f"Could not create import spec for {pyfile}")
+
+        loader = spec.loader
+        if not isinstance(loader, ExecutionLoader):
+            raise TypeError(f"Could not create executable loader for {pyfile}")
 
         module = importlib.util.module_from_spec(spec)
         # dataclasses, pickle and typing look the module up by name
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        loader.exec_module(module)
 
         logger.debug("Imported external scan module: %s", pyfile)
 

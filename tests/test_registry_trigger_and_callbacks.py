@@ -173,11 +173,11 @@ class TestScanRegistry(unittest.TestCase):
                 ).strip()
             )
 
-            with patch.dict(os.environ, {"KIWI_SCAN_SCAN_PATH": td}, clear=False):
-                with self.assertLogs("kiwi_scan.scan.registry", level="ERROR") as logs:
-                    load_all_scan_types()
-                    load_all_scan_types()
-                    load_all_scan_types()
+            with patch.dict(os.environ, {"KIWI_SCAN_SCAN_PATH": td}, clear=False), \
+                    self.assertLogs("kiwi_scan.scan.registry", level="ERROR") as logs:
+                load_all_scan_types()
+                load_all_scan_types()
+                load_all_scan_types()
 
         self.assertNotIn("half_scan", SCAN_REGISTRY)
         self.assertEqual(len(logs.records), 1)
