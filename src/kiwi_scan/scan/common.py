@@ -659,6 +659,22 @@ class BaseScan(ScanABC):
             except Exception:
                 logger.exception("Failed to start plugin %s", plugin.name)
     
+    def _notify_plugins_move(self, hook: str, index: int, targets: Dict[str, Any]) -> None:
+        """Call a plugin move hook (``pre_move`` or ``post_move``) on every plugin.
+
+        Step scans only. A failing hook is logged and does not stop the scan;
+        each plugin gets its own copy of the targets.
+        """
+        for plugin in self.plugins:
+            method = getattr(plugin, hook, None)
+            if not callable(method):
+                continue
+            try:
+                method(index, dict(targets))
+            except Exception:
+                logger.exception("Plugin %s failed in %s for point %d",
+                    getattr(plugin, "name", type(plugin).__name__), hook, index)
+
     def _end_plugins(self) -> None:
         """Run plugin end hooks."""
         for plugin in self.plugins:
@@ -834,13 +850,21 @@ class BaseScan(ScanABC):
                     logger.info("Stop requested—aborting scan before step %d.", index)
                     break
 
+                # the overshoot step is not a scan point, so plugins are not notified
+                is_scan_point = not (overshoot_applied and index == 0)
+                targets = {name: new_positions[name][index] for name in new_positions}
+
+                if is_scan_point:
+                    with self.performance.time_block("plugins:pre_move", idx=index):
+                        self._notify_plugins_move("pre_move", index, targets)
+
                 if not self._move_scan_step(new_positions, index):
                     break
 
                 # 2) wait for all in parallel
                 self._parallel_wait(
                     {name: self.actuators[name] for name in new_positions},
-                    {name: new_positions[name][index] for name in new_positions}
+                    targets,
                 )
 
                 if self._stop_requested.is_set():
@@ -848,8 +872,11 @@ class BaseScan(ScanABC):
                     break
 
                 # 3) skip detector‐read on the overshoot step
-                if overshoot_applied and index == 0:
+                if not is_scan_point:
                     continue
+
+                with self.performance.time_block("plugins:post_move", idx=index):
+                    self._notify_plugins_move("post_move", index, targets)
 
                 # 4) read detectors & save & monitor
                 position = new_positions[first_actuator][index]
