@@ -73,10 +73,16 @@ class EpicsPV:
             _safe_poll()
             return ok
 
-        ok = self._ca(_create_and_connect)
-
-        if not ok:
-            raise ConnectionError(f"EPICS PV '{pvname}' did not connect within {self.connection_timeout:.2f}s")
+        try:
+            ok = self._ca(_create_and_connect)
+            if not ok:
+                raise ConnectionError(f"EPICS PV '{pvname}' did not connect within {self.connection_timeout:.2f}s")
+        except BaseException:
+            try:
+                self.close()
+            except Exception:
+                logger.debug("Failed to close PV %s after connection failed", pvname, exc_info=True)
+            raise
 
         # Enable monitoring AFTER connection (serialized)
         if auto_monitor:
@@ -244,6 +250,22 @@ class EpicsPV:
         """Disconnect this PV from Channel Access."""
         pv = self._require_pv()
         self._ca(pv.disconnect)
+
+    # TODO: FIXME: Call close() from scan cleanups including subscriptions after stopping workers.
+    def close(self) -> None:
+        """ Release PV resources. Can be called repeatedly from users after workes have stopped.  """
+        with _CA_LOCK:
+            pv = self._pv
+            if pv is None:
+                return
+            try:
+                pv.clear_callbacks()
+            except Exception:
+                logger.debug("Failed to clear callbacks while closing PV %s", self.pvname, exc_info=True)
+            # Keep PV if disconnect fails
+            pv.disconnect()
+            self._callback_refs.clear()
+            self._pv = None
 
     def clear_callbacks(self) -> None:
         pv = self._require_pv()

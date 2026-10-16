@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.6.0]
+
 ### Added
 
 - Added a point pipeline that owns point frames, caches, column construction.
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Added reusable actuator helpers: `create_actuators()`, `load_actuators()`, `run_monitors()`, and `MonitorSpec`.
 - Added the `kiwi-pva-server` cli and PVA `NTTable` (scan data) service.
 - Added --last-scan option to manifestfiles cli
+- Added close() to EPICS wrapper for cleaning up resources
 
 ### Changed
 
@@ -32,6 +35,10 @@ Non-positive values leave termination as before to motion, range, or stop condit
 ### Fixed
 
 - CAN undulator velocities encoding in unsigned 16-bit fields.
+- Handle dublicates in subscription manager
+- Hardened output manager file name generation for multiple processes
+- Timeout sping condition in sync controller
+- I/O error handling and data writing on/off handling in metadata monitor
 
 ### Migration notes
 
