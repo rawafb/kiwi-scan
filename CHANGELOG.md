@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Added the `hzb.emc_getter` async plugin for reading HZB EMC scalar values over TCP.
+
+### Fixed
+
+- `AsyncScanPlugin` constructors are now typed with `ScanPluginContext`, like `ScanPlugin`.
+
 ## [0.6.0]
 
 ### Added

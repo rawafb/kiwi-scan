@@ -10,7 +10,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 from kiwi_scan.plugin.base import ScanPlugin
-from kiwi_scan.scan.common import BaseScan
+from kiwi_scan.plugin.context import ScanPluginContext
 
 
 class AsyncScanPlugin(ScanPlugin):
@@ -28,7 +28,7 @@ class AsyncScanPlugin(ScanPlugin):
         self,
         name: str,
         parameters: Optional[Dict[str, Any]] = None,
-        scan: Optional[BaseScan] = None,
+        scan: Optional[ScanPluginContext] = None,
     ):
         super().__init__(name=name, parameters=parameters, scan=scan)
 
