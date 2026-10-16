@@ -842,6 +842,121 @@ class TestBaseScanRuntimeHelpers(unittest.TestCase):
         no_close.on_start.assert_called_once_with()
         no_close.on_end.assert_called_once_with()
 
+    def test_notify_plugins_move_is_best_effort_and_copies_targets(self):
+        scan = DummyScan()
+        seen = []
+
+        def record(idx, pos):
+            seen.append((idx, dict(pos)))
+            pos["energy"] = -1.0  # must not leak to the next plugin
+
+        working = MagicMock(name="working")
+        working.pre_move.side_effect = record
+        broken = MagicMock(name="broken")
+        broken.pre_move.side_effect = RuntimeError("hook failed")
+        no_hook = SimpleNamespace(name="no-hook")
+        later = MagicMock(name="later")
+        scan.plugins = [working, broken, no_hook, later]
+        targets = {"energy": 2.0}
+
+        with self.assertLogs("kiwi_scan.scan.common", level="ERROR"):
+            scan._notify_plugins_move("pre_move", 3, targets)
+
+        self.assertEqual(seen, [(3, {"energy": 2.0})])
+        later.pre_move.assert_called_once_with(3, {"energy": 2.0})
+        self.assertEqual(targets, {"energy": 2.0})
+
+    def _make_step_scan_for_hooks(self, events):
+        scan = DummyScan()
+        scan.performance.enabled = False
+        scan._stop_requested = threading.Event()
+        scan._start_scan_services = MagicMock()
+        scan._fire_triggers = MagicMock()
+        scan._end_plugins = MagicMock()
+        scan._close_plugins = MagicMock()
+        scan._stop_metadata_monitor = MagicMock()
+        scan._stop_subscriptions = MagicMock()
+        scan._stop_detector_reader = MagicMock()
+        scan.performance.report = MagicMock()
+        scan.get_stop_pv = MagicMock(return_value=0)
+        scan._move_scan_step = MagicMock(
+            side_effect=lambda pos, idx: events.append(("move", idx)) or True
+        )
+        scan._parallel_wait = MagicMock(
+            side_effect=lambda acts, targets: events.append(("wait", dict(targets)))
+        )
+        scan._acquire_daq_point_step = MagicMock(
+            side_effect=lambda idx, pos, mon: events.append(("acquire", idx)) or True
+        )
+        plugin = MagicMock(name="plugin")
+        plugin.pre_move.side_effect = lambda idx, pos: events.append(("pre_move", idx, pos))
+        plugin.post_move.side_effect = lambda idx, pos: events.append(("post_move", idx, pos))
+        scan.plugins = [plugin]
+        return scan
+
+    def test_step_scan_calls_move_hooks_around_each_point(self):
+        events = []
+        scan = self._make_step_scan_for_hooks(events)
+        scan.actuators = {"energy": SimpleNamespace(backlash=0.0)}
+
+        with patch("kiwi_scan.scan.common.ensure_ca_context"):
+            scan.scan({"energy": [1.0, 2.0]})
+
+        self.assertEqual(
+            events,
+            [
+                ("pre_move", 0, {"energy": 1.0}),
+                ("move", 0),
+                ("wait", {"energy": 1.0}),
+                ("post_move", 0, {"energy": 1.0}),
+                ("acquire", 0),
+                ("pre_move", 1, {"energy": 2.0}),
+                ("move", 1),
+                ("wait", {"energy": 2.0}),
+                ("post_move", 1, {"energy": 2.0}),
+                ("acquire", 1),
+            ],
+        )
+
+    def test_step_scan_skips_move_hooks_for_overshoot_step(self):
+        events = []
+        scan = self._make_step_scan_for_hooks(events)
+        scan.actuators = {"energy": SimpleNamespace(backlash=0.5)}
+
+        with patch("kiwi_scan.scan.common.ensure_ca_context"):
+            scan.scan({"energy": [1.0, 2.0]})
+
+        hook_events = [e for e in events if e[0] in ("pre_move", "post_move")]
+        self.assertEqual(
+            hook_events,
+            [
+                ("pre_move", 1, {"energy": 1.0}),
+                ("post_move", 1, {"energy": 1.0}),
+                ("pre_move", 2, {"energy": 2.0}),
+                ("post_move", 2, {"energy": 2.0}),
+            ],
+        )
+        self.assertEqual(events[:2], [("move", 0), ("wait", {"energy": 0.5})])
+
+    def test_step_scan_skips_post_move_after_stop_during_wait(self):
+        events = []
+        scan = self._make_step_scan_for_hooks(events)
+        scan.actuators = {"energy": SimpleNamespace(backlash=0.0)}
+
+        def wait_then_stop(acts, targets):
+            events.append(("wait", dict(targets)))
+            scan._stop_requested.set()
+
+        scan._parallel_wait.side_effect = wait_then_stop
+
+        with patch("kiwi_scan.scan.common.ensure_ca_context"):
+            scan.scan({"energy": [1.0, 2.0]})
+
+        self.assertEqual(
+            [e[0] for e in events],
+            ["pre_move", "move", "wait"],
+        )
+
     def test_stop_pv_is_read_and_reset(self):
         scan = DummyScan()
         scan.stop_pv = MagicMock()

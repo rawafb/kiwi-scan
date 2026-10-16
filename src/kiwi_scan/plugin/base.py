@@ -102,10 +102,19 @@ class ScanPlugin(ABC):
         pass
 
     def pre_move(self, idx: int, pos: Dict[str, Any]) -> None:
-        pass
+        """Step scans: called before the moves of point ``idx`` are issued.
+
+        ``pos`` maps actuator names to their targets. Use it for preparation
+        that is valid while the axes travel; keep it short, it runs in the scan thread.
+        """
 
     def post_move(self, idx: int, pos: Dict[str, Any]) -> None:
-        pass
+        """Step scans: called once all axes of point ``idx`` are in position.
+
+        Runs before the integration wait and detector reads, so an acquisition
+        started here overlaps them and can be collected in ``get_values``.
+        Not called for the backlash overshoot step or after a stop.
+        """
 
     @abstractmethod
     def get_headers(self, timestamps: bool) -> List[str]:
