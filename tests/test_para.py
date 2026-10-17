@@ -177,7 +177,7 @@ class TestParaScanInitialization(ParaScanTestCase):
         ]
         self.assertEqual(
             registered_roles,
-            ["heartbeat", "stat", "status", "stop", "trigger", "plugin"],
+            ["heartbeat", "stat", "status", "stop", "trigger", "plugin", "sync"],
         )
 
     def test_stat_event_only_collects_during_daq(self):
@@ -327,6 +327,27 @@ class TestParaScanPositionState(ParaScanTestCase):
 
         scan.actuators["y"] = SequenceActuator(ready_values=(False,))
         self.assertFalse(scan._all_actuators_ready())
+
+    def test_dim_with_start_equal_stop_accepts_any_numeric_value(self):
+        dim = ScanDimension("motor", 5.0, 5.0, 0)
+
+        self.assertTrue(ParaScan._dim_is_unbounded(dim))
+        self.assertFalse(ParaScan._dim_is_unbounded(ScanDimension("motor", 0.0, 1.0, 0)))
+        for value in (5.0, -1e6, "123.4", 1e9):
+            with self.subTest(value=value):
+                self.assertTrue(ParaScan._dim_in_range(dim, value))
+        self.assertFalse(ParaScan._dim_in_range(dim, None))
+        self.assertFalse(ParaScan._dim_in_range(dim, "invalid"))
+
+    def test_termination_detector_ignores_dimensions_without_detector(self):
+        dimensions = [
+            ScanDimension("x", 0.0, 10.0, 2),
+            ScanDimension("y", 3.0, 3.0, 2),
+        ]
+        scan = self.make_scan(dimensions=dimensions)
+        exits = {"x": RangeExitDetector(0.0, 10.0, out_threshold=1)}
+
+        self.assertFalse(scan._termination_detected({"x": 4.0, "y": 100.0}, exits))
 
     def test_termination_detector_skips_invalid_values_and_detects_exit(self):
         dimensions = [
@@ -522,6 +543,45 @@ class TestParaScanLoop(ParaScanTestCase):
 
         scan._wait_cycle.assert_not_called()
         scan._acquire_point.assert_not_called()
+        self.assertFalse(scan.busyflag)
+
+    def test_scan_with_start_equal_stop_records_anywhere_without_range_exit(self):
+        scan = self.make_scan(
+            dimensions=[ScanDimension("motor", 5.0, 5.0, 4)],
+            maxindex=4,
+        )
+        positions = [{"motor": 5.0}, {"motor": 100.0}, {"motor": -50.0}, {"motor": 1e6}]
+        scan._wait_cycle = Mock()
+        scan._read_position_snapshot = Mock(side_effect=positions)
+        scan._snapshot_is_acquirable = Mock(return_value=True)
+        scan._any_actuator_moving = Mock(return_value=True)
+        scan._acquire_point = Mock()
+
+        scan.scan(None)
+
+        self.assertEqual(
+            [c.args[1] for c in scan._acquire_point.call_args_list],
+            positions,
+        )
+
+    def test_scan_with_zero_steps_has_no_point_limit(self):
+        scan = self.make_scan(maxindex=0)
+        scan._wait_cycle = Mock()
+        scan._read_position_snapshot = Mock(
+            side_effect=[{"motor": float(i)} for i in range(10)]
+        )
+        scan._snapshot_is_acquirable = Mock(return_value=True)
+        scan._any_actuator_moving = Mock(return_value=True)
+
+        def acquire(index, _snapshot, _monitor):
+            if index == 7:
+                scan._stop_requested.set()
+
+        scan._acquire_point = Mock(side_effect=acquire)
+
+        scan.scan(None)
+
+        self.assertEqual(scan._acquire_point.call_count, 8)
         self.assertFalse(scan.busyflag)
 
     def test_scan_honors_stop_requested_during_wait(self):
