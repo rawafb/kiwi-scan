@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Added the `hzb.emc_getter` async plugin for reading HZB EMC scalar values over TCP.
+
+### Fixed
+
+- `AsyncScanPlugin` constructors are now typed with `ScanPluginContext`, like `ScanPlugin`.
+- `para` scans no longer hang on `role: sync` subscriptions; the sync role is now registered.
+- `para` scans with `start == stop` accept any position, and `steps <= 0` records without a point limit.
+
 ## [0.6.0]
 
 ### Added

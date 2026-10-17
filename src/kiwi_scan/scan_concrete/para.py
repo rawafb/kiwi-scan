@@ -57,7 +57,7 @@ class ParaScan(BaseScan):
         self.register_subscription_role("stop", self.event_handler.on_stop_event)
         self.register_subscription_role("trigger", self.event_handler.on_trigger_event)
         self.register_subscription_role("plugin", self.event_handler.on_plugin_event)
-        # TODO: sync subscription handling        
+        self.register_subscription_role("sync", self.event_handler.on_sync_event)
         self._maxindex = 0
         self._maxindex = self.scan_dimensions[0].steps
 
@@ -75,6 +75,11 @@ class ParaScan(BaseScan):
 
 
     @staticmethod
+    def _dim_is_unbounded(dim) -> bool:
+        """``start == stop`` accepts any readback and never ends the scan by range exit."""
+        return float(dim.start) == float(dim.stop)
+
+    @staticmethod
     def _dim_in_range(dim, value: Any) -> bool:
         if value is None:
             return False
@@ -84,6 +89,8 @@ class ParaScan(BaseScan):
             logger.debug("Cannot range-check non-numeric readback %r for actuator %s", value, dim.actuator)
             return False
 
+        if ParaScan._dim_is_unbounded(dim):
+            return True
         start = float(dim.start)
         stop = float(dim.stop)
         return start <= pos <= stop if start <= stop else stop <= pos <= start
@@ -167,6 +174,8 @@ class ParaScan(BaseScan):
     ) -> bool:
         """ Return True once an already-entered actuator range is left past its stop."""
         for dim in self.scan_dimensions:
+            if dim.actuator not in range_exits:
+                continue
             value = snapshot.get(dim.actuator)
             if value is None:
                 continue 
@@ -329,6 +338,7 @@ class ParaScan(BaseScan):
         range_exits = {
             dim.actuator: RangeExitDetector(dim.start, dim.stop, eps=0.001, out_threshold=3)
             for dim in self.scan_dimensions
+            if not self._dim_is_unbounded(dim)
         }
         tolerances = self._position_tolerances()
         index = 0
@@ -365,7 +375,7 @@ class ParaScan(BaseScan):
 
                 self._acquire_point(index, snapshot, monitor)
                 index += 1
-                if index >= self._maxindex:
+                if 0 < self._maxindex <= index:
                     break
 
                 if not self._wait_for_external_motion():

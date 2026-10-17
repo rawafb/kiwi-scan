@@ -319,6 +319,52 @@ plugin_configs:
     name: timestamp_performance
 ```
 
+### `hzb.emc_getter`
+
+Asynchronous plugin that reads scalar values from an HZB EMC (electrometer
+controller) over one persistent TCP connection. It runs one background worker,
+so the scan thread never waits for the network. Each scan point publishes the
+latest complete group of values; until the first group arrives, and after a
+failed exchange, the columns contain `NaN` and the error is available from
+`get_async_status()`.
+
+Commands are sent one at a time in configuration order, and each reply must
+be complete before the next command goes out. A reply has the form
+`t <value>`; anything else counts as a failed read. After a failed or
+incomplete exchange the connection is closed and opened again on the next job.
+
+Parameters:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `host` | `localhost` | EMC host name or address. |
+| `port` | `5001` | EMC TCP port. |
+| `timeout_s` | `0.5` | Connect and per-command reply deadline in seconds. |
+| `min_interval_s` | `0.0` | Minimum time between two reads; points in between reuse the last values. |
+| `reply_terminator` | `none` | `none` treats one TCP receive as one reply (legacy EMC); `lf`, `crlf` or `cr` read until that terminator. |
+| `record_times` | `false` | Adds `<column>_before` and `<column>_after` POSIX times around each command. |
+| `getters` | required | List of `{command, column, value_type}`; `value_type` is `float` (default) or `int`. |
+| `max_workers` | `1` | Must stay `1`; the EMC protocol is serial. |
+
+Example:
+
+```yaml
+plugin_configs:
+  - type: hzb.emc_getter
+    name: emc
+    parameters:
+      host: emc01
+      port: 5001
+      timeout_s: 0.5
+      reply_terminator: lf
+      getters:
+        - command: getCurrent1
+          column: emc_i1
+        - command: getRange1
+          column: emc_range1
+          value_type: int
+```
+
 ## Minimal custom plugin example
 
 Create `plugins/drift_watch.py`:

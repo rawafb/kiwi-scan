@@ -101,7 +101,18 @@ The scan loop is:
 
 The first configured scan dimension is written as the standard `Position` column. For multi-actuator setups, all configured actuator readbacks are checked for range and readiness.
 
-`steps` defines the maximum number of points to record. The scan also terminates when it has already recorded points inside the range and then detects that an actuator has left its configured scan range.
+`steps` defines the maximum number of points to record; `steps` of `0` or less records without a point limit until the scan is stopped. The scan also terminates when it has already recorded points inside the range and then detects that an actuator has left its configured scan range.
+
+A dimension with `start` equal to `stop` has no range: any readback of that actuator is accepted, and it never ends the scan by leaving its range. Combined with `steps=0`, the scan records every external step until it is stopped:
+
+```bash
+scan_runner \
+  --scan_type para \
+  --config-file ./mono.yaml \
+  --dim actuator=energy,start=0,stop=0,steps=0
+```
+
+`para` handles the `sync` subscription role like `cm` and `poll`: with `role: sync` subscriptions, each wait cycle waits for those events (or their `timeout`) instead of the sample time.
 
 Example:
 
